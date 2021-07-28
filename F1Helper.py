@@ -259,10 +259,13 @@ class F1Helper:
         return Q_results.reset_index(drop=True)
 
     def print_qualify_123_results(self, grandprix=None):
-        result = self.get_qualify_123_results(grandprix).fillna(' ')
+        result = self.get_qualify_123_results(grandprix)
 
         def compound_to_str(compound, single=True, brackets=True):
-            return '(' + compound[:1] + ')' if len(compound) > 2 else ''
+            if isinstance(compound, str):
+                return '(' + compound[:1] + ')' if len(compound) > 2 else ''
+            else:
+                return ' '
 
         print('{:3}  {:>2}  {:<20}  {:<13}  {:<8} {:<3}  {:<8} {:<3}  {:<8} {:<3}'. \
               format('Pos', 'Nr', 'Driver', 'Team', 'Q3', ' T ', 'Q2', ' T ', 'Q1', ' T '))
