@@ -1,4 +1,5 @@
 import fastf1 as ff1
+import fastf1.core
 import requests
 import json
 import pandas as pd
@@ -7,6 +8,8 @@ import math
 import os
 
 from fastf1.core import Laps
+from typing import Union
+from datetime import timedelta
 
 
 class F1Helper:
@@ -21,7 +24,7 @@ class F1Helper:
             os.makedirs('cache')
         ff1.Cache.enable_cache('cache')
 
-    def set_season(self, year):
+    def set_season(self, year: int) -> None:
         if isinstance(year, int) and 1950 < year < 2022:
             new_season = year
         else:
@@ -32,10 +35,10 @@ class F1Helper:
             self.drivers = pd.DataFrame()
             self.sessions = {}
 
-    def get_season(self):
+    def get_season(self) -> int:
         return self.season
 
-    def get_events(self):
+    def get_events(self) -> pd.DataFrame:
         if not self.events.empty:
             return self.events
         if self.season < 1950 or self.season > 2030:
@@ -52,7 +55,7 @@ class F1Helper:
         self.events = rounds
         return rounds
 
-    def get_drivers(self):
+    def get_drivers(self) -> pd.DataFrame:
         if not self.drivers.empty:
             return self.drivers
         if self.season < 1950 or self.season > 2030:
@@ -68,7 +71,7 @@ class F1Helper:
         self.drivers = drivers
         return drivers
 
-    def get_driver(self, did):
+    def get_driver(self, did: str) -> str:
         if isinstance(did, str):
             # Search by code and name
             res = self.drivers[self.drivers.code == did]
@@ -80,18 +83,19 @@ class F1Helper:
         else:
             return None
 
-    def null_check(self, val):
+    @staticmethod
+    def null_check(val: object) -> bool:
         if (not val) or pd.isnull(val) or pd.isna(val):
             return False
         return True
 
-    def get_driver_fullname(self, driver):
+    def get_driver_fullname(self, driver: str) -> str:
         if not self.null_check(driver):
             return ''
         driver = self.drivers[self.drivers.code == driver]
         return driver['givenName'].values[0] + ' ' + (driver['familyName'].values[0]).upper()
 
-    def shorten_team_name(self, name):
+    def shorten_team_name(self, name: str) -> str:
         if not self.null_check(name):
             return ''
         if name.upper().endswith('TEAM'):
@@ -99,11 +103,7 @@ class F1Helper:
         else:
             return name
 
-    def set_event(self, grandprix):
-        if self.events.empty:
-            _ = self.get_events()
-
-    def set_default_event(self, grandprix):
+    def set_default_event(self, grandprix: Union[str, int]) -> str:
         df = self.get_events()
         if isinstance(grandprix, str):
             self.event = df[df.raceName.str.contains('(?i)' + grandprix)]['raceName']
@@ -123,7 +123,7 @@ class F1Helper:
             self.event = df[df['round'] == grandprix]['raceName'].values[0]
         return self.event
 
-    def get_session(self, grandprix=None, session='R'):
+    def get_session(self, grandprix: str = None, session: str = 'R') -> fastf1.core.Laps:
         if not grandprix:
             grandprix = self.event
         if self.events.empty:
@@ -143,7 +143,7 @@ class F1Helper:
                 return self.sessions[grandprix][session]
         return None
 
-    def get_qualify_laps(self, grandprix=None):
+    def get_qualify_laps(self, grandprix: str = None) -> fastf1.core.Laps:
         laps = self.get_session(grandprix, session='Q')
         times = laps['SecFromStart'] = laps['Time'].apply(lambda x: (math.floor(x.seconds / 60)))
 
@@ -210,7 +210,7 @@ class F1Helper:
 
         return laps
 
-    def get_qualify_123_results(self, grandprix=None):
+    def get_qualify_123_results(self, grandprix: str = None) -> pd.DataFrame:
         laps = self.get_qualify_laps(grandprix)
         list_fastest_laps = list()
         for q in ['Q1', 'Q2', 'Q3']:
@@ -240,8 +240,8 @@ class F1Helper:
         drivers_to_Q3 = Q2_laps.iloc[:10, :]['Driver'].values
         drivers_Q3 = Q3_laps.iloc[:, :]['Driver'].values
         drivers_not_driven_Q3 = np.array([ele for ele in drivers_to_Q3 if ele not in drivers_Q3])
-        driver_results = drivers_Q3.tolist() + drivers_not_driven_Q3.tolist() + drivers_out_Q2.tolist() + \
-                         drivers_not_driven_Q2.tolist() + drivers_out_Q1.tolist()
+        driver_results = (drivers_Q3.tolist() + drivers_not_driven_Q3.tolist() + drivers_out_Q2.tolist() +
+                          drivers_not_driven_Q2.tolist() + drivers_out_Q1.tolist())
 
         Q_results = pd.DataFrame()
         for driver in driver_results:
@@ -258,32 +258,39 @@ class F1Helper:
             Q_results = Q_results.append(info)
         return Q_results.reset_index(drop=True)
 
-    def print_qualify_123_results(self, grandprix=None):
+    @staticmethod
+    def compound_to_str(compound: str, single: bool = True, brackets: bool = True) -> str:
+        if isinstance(compound, str):
+            if single:
+                res = compound[:1] if len(compound) > 2 else ''
+            else:
+                res = compound if len(compound) > 2 else ''
+            if brackets and len(res) >= 1:
+                res = '(' + res + ')'
+            return res
+        else:
+            return ''
+
+    def print_qualify_123_results(self, grandprix: str = None) -> None:
         result = self.get_qualify_123_results(grandprix)
 
-        def compound_to_str(compound, single=True, brackets=True):
-            if isinstance(compound, str):
-                return '(' + compound[:1] + ')' if len(compound) > 2 else ''
-            else:
-                return ' '
-
-        print('{:3}  {:>2}  {:<20}  {:<13}  {:<8} {:<3}  {:<8} {:<3}  {:<8} {:<3}'. \
+        print('{:3}  {:>2}  {:<20}  {:<13}  {:<8} {:<3}  {:<8} {:<3}  {:<8} {:<3}'.
               format('Pos', 'Nr', 'Driver', 'Team', 'Q3', ' T ', 'Q2', ' T ', 'Q1', ' T '))
         for idx, row in result.iterrows():
-            print('{:3d}  {:>2}  {:<20}  {:<13}  {:<8} {:<3}  {:<8} {:<3}  {:<8} {:<3}'. \
+            print('{:3d}  {:>2}  {:<20}  {:<13}  {:<8} {:<3}  {:<8} {:<3}  {:<8} {:<3}'.
                   format(idx + 1,
                          row['DriverNumber'],
                          self.get_driver_fullname(row['Driver']),
                          self.shorten_team_name(row['Team']),
                          self.timedelta_to_str(row['Q3']),
-                         compound_to_str(row['Q3_C']),
+                         self.compound_to_str(row['Q3_C']),
                          self.timedelta_to_str(row['Q2']),
-                         compound_to_str(row['Q2_C']),
+                         self.compound_to_str(row['Q2_C']),
                          self.timedelta_to_str(row['Q1']),
-                         compound_to_str(row['Q1_C']),
+                         self.compound_to_str(row['Q1_C']),
                          ))
 
-    def get_qualify_results(self, grandprix=None):
+    def get_qualify_results(self, grandprix: str = None) -> pd.DataFrame:
         laps = self.get_session(grandprix, session='Q')
         list_fastest_laps = list()
         drivers = pd.unique(laps['Driver'])
@@ -296,7 +303,7 @@ class F1Helper:
         fastest_laps['Gap'] = fastest_laps['LapTime'] - fastest_laps['LapTime'].shift(+1)
         return fastest_laps
 
-    def print_qualify_results(self, grandprix=None):
+    def print_qualify_results(self, grandprix: str = None) -> None:
         result = self.get_qualify_results(grandprix)
         print('{:3}  {:2}  {:<20}  {:<13}  {:<4} {:<9}  {:<9}  {:<9}'.
               format('Pos', 'Nr', 'Driver', 'Team', 'Tyre', 'Time', 'Delta', 'Gap'))
@@ -312,7 +319,8 @@ class F1Helper:
                          self.timedelta_to_str(row['Gap'])
                          ))
 
-    def timedelta_to_str(self, td):
+    @staticmethod
+    def timedelta_to_str(td: timedelta) -> str:
         if pd.isnull(td):
             return ''
         if isinstance(td, str):
@@ -325,34 +333,35 @@ class F1Helper:
             return ''
         return '{:1d}:{:02d}.{:03d}'.format(minutes, seconds, millsec)
 
-    def compare_laps(self, lap1, lap2):
+    @staticmethod
+    def get_diff_str(time1: timedelta, time2: timedelta) -> str:
+        if time1 >= time2:
+            delta = (time1 - time2).total_seconds()
+            sign = '-'
+        else:
+            delta = (time2 - time1).total_seconds()
+            sign = '+'
+        return '{}{:2d}.{:03d}'.format(sign, int(math.floor(delta)), int(1000 * (delta % 1)))
+
+    def compare_laps(self, lap1: fastf1.core.Lap, lap2: fastf1.core.Lap) -> None:
         d1 = self.get_driver(lap1['Driver'])
         d2 = self.get_driver(lap2['Driver'])
-
-        def get_diff_str(time1, time2):
-            if time1 >= time2:
-                delta = (time1 - time2).total_seconds()
-                sign = '-'
-            else:
-                delta = (time2 - time1).total_seconds()
-                sign = '+'
-            return '{}{:2d}.{:03d}'.format(sign, int(math.floor(delta)), int(1000 * (delta % 1)))
 
         format_string = '{:<14}| {:>18} |{:>14}'
 
         left = d1['familyName'].values[0].upper()
         rght = d2['familyName'].values[0].upper()
-        diff = '{}{:>10}'.format('sector 1', get_diff_str(lap1['Sector1Time'], lap2['Sector1Time']))
+        diff = '{}{:>10}'.format('sector 1', self.get_diff_str(lap1['Sector1Time'], lap2['Sector1Time']))
         l1 = format_string.format(left, diff, rght)
 
         left = '{:2d} - {}'.format(d1['number'].values[0], d1['code'].values[0])
         rght = '{:2d} - {}'.format(d2['number'].values[0], d2['code'].values[0])
-        diff = '{}{:>10}'.format('sector 2', get_diff_str(lap1['Sector2Time'], lap2['Sector2Time']))
+        diff = '{}{:>10}'.format('sector 2', self.get_diff_str(lap1['Sector2Time'], lap2['Sector2Time']))
         l2 = format_string.format(left, diff, rght)
 
         left = self.shorten_team_name(lap1['Team'].upper())
         rght = self.shorten_team_name(lap2['Team'].upper())
-        diff = '{}{:>10}'.format('sector 3', get_diff_str(lap1['Sector3Time'], lap2['Sector3Time']))
+        diff = '{}{:>10}'.format('sector 3', self.get_diff_str(lap1['Sector3Time'], lap2['Sector3Time']))
         l3 = format_string.format(left, diff, rght)
 
         left = '{} ({:2.0f})'.format(lap1['Compound'], (lap1['TyreLife']))
@@ -362,7 +371,7 @@ class F1Helper:
 
         left = self.timedelta_to_str(lap1['LapTime'])
         rght = self.timedelta_to_str(lap2['LapTime'])
-        diff = '{:<8}{:>10}'.format('lap', get_diff_str(lap1['LapTime'], lap2['LapTime']))
+        diff = '{:<8}{:>10}'.format('lap', self.get_diff_str(lap1['LapTime'], lap2['LapTime']))
         l5 = format_string.format(left, diff, rght)
 
         print(l1)
@@ -371,12 +380,11 @@ class F1Helper:
         print(l4)
         print(l5)
 
-    def print_laptime_table(self, laptimetable):
-        result = laptimetable
-        print('{:3}  {:>2}  {:<20}  {:<13}  {:<9}  {:<9}  {:<9}  {:<9}'. \
+    def print_laptime_table(self, laptimetable: pd.DataFrame) -> None:
+        print('{:3}  {:>2}  {:<20}  {:<13}  {:<9}  {:<9}  {:<9}  {:<9}'.
               format('Pos', 'Nr', 'Driver', 'Team', 'Lap time', 'Sector 1', 'Sector 2', 'Sector 3'))
-        for idx, row in result.iterrows():
-            print('{:3d}  {:>2}  {:<20}  {:<13}  {:<9}  {:<9}  {:<9}  {:<9}'. \
+        for idx, row in laptimetable.iterrows():
+            print('{:3d}  {:>2}  {:<20}  {:<13}  {:<9}  {:<9}  {:<9}  {:<9}'.
                   format(idx + 1,
                          row['DriverNumber'],
                          self.get_driver_fullname(row['Driver']),
@@ -387,7 +395,8 @@ class F1Helper:
                          self.timedelta_to_str(row['Sector3Time'])
                          ))
 
-    def determine_best_combined_laptimes(self, laps):
+    @staticmethod
+    def determine_best_combined_laptimes(laps: pd.DataFrame) -> pd.DataFrame:
         flaps = laps[['DriverNumber', 'Sector1Time', 'Sector2Time', 'Sector3Time']]
         flaps = flaps.groupby('DriverNumber').min().reset_index()
         flaps = flaps.append({"DriverNumber": 0,
