@@ -1,5 +1,4 @@
 import fastf1 as ff1
-import fastf1.core
 import requests
 import json
 import pandas as pd
@@ -7,7 +6,7 @@ import numpy as np
 import math
 import os
 
-from fastf1.core import Laps
+from fastf1.core import Laps, Lap
 from typing import Union
 from datetime import timedelta
 
@@ -25,6 +24,16 @@ class F1Helper:
         ff1.Cache.enable_cache('cache')
 
     def set_season(self, year: int) -> None:
+        """
+        Sets the sesason. All references to a grandprix
+        will be made in this season. If the season is not within the
+        range 1952 to 2022, the season is set to 2021.
+        Args:
+            year: int, specifying the year
+
+        Returns:
+            None
+        """
         if isinstance(year, int) and 1950 < year < 2022:
             new_season = year
         else:
@@ -36,9 +45,19 @@ class F1Helper:
             self.sessions = {}
 
     def get_season(self) -> int:
+        """
+        Returns the set season
+        Returns:
+            Season set (int)
+        """
         return self.season
 
     def get_events(self) -> pd.DataFrame:
+        """
+        REturn a dataframe with a list of all events in the selected season
+        Returns:
+            Dataframe containing all events of the season
+        """
         if not self.events.empty:
             return self.events
         if self.season < 1950 or self.season > 2030:
@@ -56,6 +75,11 @@ class F1Helper:
         return rounds
 
     def get_drivers(self) -> pd.DataFrame:
+        """
+        Return a list of all drivers active in the given season
+        Returns:
+            Dataframe with drivers
+        """
         if not self.drivers.empty:
             return self.drivers
         if self.season < 1950 or self.season > 2030:
@@ -71,7 +95,17 @@ class F1Helper:
         self.drivers = drivers
         return drivers
 
-    def get_driver(self, did: str) -> str:
+    def get_driver(self, did: str) -> pd.DataFrame:
+        """
+        Obtain the information of a driver based on its code, the three letter abbreviation
+        used to identify the driver
+        Args:
+            did: Driver ID, e.g. 'ALO' for Fernando ALONSO
+
+        Returns:
+            Dataframe with one row with the information of the requested driver
+            None, if driver not found
+        """
         if isinstance(did, str):
             # Search by code and name
             res = self.drivers[self.drivers.code == did]
@@ -85,17 +119,44 @@ class F1Helper:
 
     @staticmethod
     def null_check(val: object) -> bool:
+        """
+        Checks if the given value is a Null value.
+        Check is performaed for None, Null, NaT, NaN
+        Args:
+            val: Value to check
+
+        Returns:
+            False, in case of null object
+            True, otherwise
+        """
         if (not val) or pd.isnull(val) or pd.isna(val):
             return False
         return True
 
     def get_driver_fullname(self, driver: str) -> str:
+        """
+        Returns the fullname of a driver based on its driver code. First name in camel-case,
+        lastname in uppercase. E.g., 'ALO' results in 'Fernando ALONSO'
+        Args:
+            driver: driver code
+
+        Returns:
+            Fullname of driver
+        """
         if not self.null_check(driver):
             return ''
         driver = self.drivers[self.drivers.code == driver]
         return driver['givenName'].values[0] + ' ' + (driver['familyName'].values[0]).upper()
 
     def shorten_team_name(self, name: str) -> str:
+        """
+        Shorten a team name, more specific, remove ' team' at the end of the name
+        Args:
+            name: Fulname
+
+        Returns:
+            Shortened name
+        """
         if not self.null_check(name):
             return ''
         if name.upper().endswith('TEAM'):
@@ -104,6 +165,17 @@ class F1Helper:
             return name
 
     def set_default_event(self, grandprix: Union[str, int]) -> str:
+        """
+        Set the default event. If the parameter is a string, it is tested againt the name
+        of the event, the country and the city the event takes place. In case of a number, this
+        is the sequence number durin the year. It is also made the default event for
+        following metohd calls.
+        Args:
+            grandprix: string or int identifying requested event
+
+        Returns:
+            The name of the event, or None if not found
+        """
         df = self.get_events()
         if isinstance(grandprix, str):
             self.event = df[df.raceName.str.contains('(?i)' + grandprix)]['raceName']
@@ -123,7 +195,7 @@ class F1Helper:
             self.event = df[df['round'] == grandprix]['raceName'].values[0]
         return self.event
 
-    def get_session(self, grandprix: str = None, session: str = 'R') -> fastf1.core.Laps:
+    def get_session(self, grandprix: str = None, session: str = 'R') -> Laps:
         if not grandprix:
             grandprix = self.event
         if self.events.empty:
@@ -143,7 +215,7 @@ class F1Helper:
                 return self.sessions[grandprix][session]
         return None
 
-    def get_qualify_laps(self, grandprix: str = None) -> fastf1.core.Laps:
+    def get_qualify_laps(self, grandprix: str = None) -> Laps:
         laps = self.get_session(grandprix, session='Q')
         times = laps['SecFromStart'] = laps['Time'].apply(lambda x: (math.floor(x.seconds / 60)))
 
@@ -343,7 +415,7 @@ class F1Helper:
             sign = '+'
         return '{}{:2d}.{:03d}'.format(sign, int(math.floor(delta)), int(1000 * (delta % 1)))
 
-    def compare_laps(self, lap1: fastf1.core.Lap, lap2: fastf1.core.Lap) -> None:
+    def compare_laps(self, lap1: Lap, lap2: Lap) -> None:
         d1 = self.get_driver(lap1['Driver'])
         d2 = self.get_driver(lap2['Driver'])
 
@@ -381,6 +453,18 @@ class F1Helper:
         print(l5)
 
     def print_laptime_table(self, laptimetable: pd.DataFrame) -> None:
+        """
+        Print a table with laptimes in the form:
+        Pos  Nr  Driver                Team           Lap time   Sector 1   Sector 2   Sector 3
+          2  33  Max VERSTAPPEN        Red Bull       1:03.690   0:16.203   0:28.250   0:19.237
+        ...
+        Position is the index of the entry, increased with one.
+        Args:
+            laptimetable: Table with laptimes to print
+
+        Returns:
+            None
+        """
         print('{:3}  {:>2}  {:<20}  {:<13}  {:<9}  {:<9}  {:<9}  {:<9}'.
               format('Pos', 'Nr', 'Driver', 'Team', 'Lap time', 'Sector 1', 'Sector 2', 'Sector 3'))
         for idx, row in laptimetable.iterrows():
@@ -397,6 +481,17 @@ class F1Helper:
 
     @staticmethod
     def determine_best_combined_laptimes(laps: pd.DataFrame) -> pd.DataFrame:
+        """
+        Determine the best possible laptim per driver by combing the best sector times.
+        Also determine the best possible time by combining the fastest sector times over
+        all drivers. Add driver with number 00 with this laptime
+        Args:
+            laps: Set of laptimes, e.g. a sesion
+
+        Returns:
+            DataFrame with best possible laptimes per driver, including overall best
+            possible time
+        """
         flaps = laps[['DriverNumber', 'Sector1Time', 'Sector2Time', 'Sector3Time']]
         flaps = flaps.groupby('DriverNumber').min().reset_index()
         flaps = flaps.append({"DriverNumber": 0,
