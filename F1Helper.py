@@ -5,7 +5,10 @@ import pandas as pd
 import numpy as np
 import math
 import os
+from PIL import Image
+from PIL import ImageFont, ImageDraw, ImageColor
 
+from matplotlib.pyplot import imshow
 from fastf1.core import Laps, Lap
 from typing import Union
 from datetime import timedelta
@@ -54,7 +57,11 @@ class F1Helper:
 
     def get_events(self) -> pd.DataFrame:
         """
-        REturn a dataframe with a list of all events in the selected season
+        Return a dataframe with a list of all events in the selected season
+
+        Columns: ['season', 'round', 'raceName', 'date', 'time', 'circuitId', 'circuitName',
+                  'lat', 'long', 'locality', 'country']
+
         Returns:
             Dataframe containing all events of the season
         """
@@ -77,6 +84,9 @@ class F1Helper:
     def get_drivers(self) -> pd.DataFrame:
         """
         Return a list of all drivers active in the given season
+
+        Columns: ['number', 'code', 'givenName', 'familyName',
+                  'dateOfBirth', 'nationality']
         Returns:
             Dataframe with drivers
         """
@@ -99,6 +109,10 @@ class F1Helper:
         """
         Obtain the information of a driver based on its code, the three letter abbreviation
         used to identify the driver
+
+        Columns: ['number', 'code', 'givenName', 'familyName',
+                  'dateOfBirth', 'nationality']
+
         Args:
             did: Driver ID, e.g. 'ALO' for Fernando ALONSO
 
@@ -196,6 +210,18 @@ class F1Helper:
         return self.event
 
     def get_session(self, grandprix: str = None, session: str = 'R') -> Laps:
+        """
+        Obtain the laps recorder for a single session of a grnadprix. If grandprix is not
+        specified, the default event is used. If event or session is not cached, it is downloaded
+        and cached.
+
+        Args:
+            grandprix: Event for which to return a session, if None default is used
+            session: Session to return. Valid options are "R", "Q", "FP1", "FP2", FP3
+
+        Returns:
+            Laps dataframe object with the laps of the session
+        """
         if not grandprix:
             grandprix = self.event
         if self.events.empty:
@@ -216,6 +242,30 @@ class F1Helper:
         return None
 
     def get_qualify_laps(self, grandprix: str = None) -> Laps:
+        """
+        Return a dataframe of the qualification times per driver. For each qualifying session (Q1, Q2, Q3)
+        the best lap per driver is listed.
+        The start and end time of each qualifying session is determined on the Time field of the Lap. This
+        field specifies the time since the start of datarecording. This is not a fixed moment, but approx 20
+        minutes before the session starts.
+        First, all minutes since the start of the session are grouped together when the time of the session
+        start. A new group is created when there has been no lap completed for 5 minutes or more.
+        If this results in more than three sessions, groups are combined based upon the number of drivers in
+        the session. If a second time group has 18 cars running, it must be part of Q1 since Q2 only has
+        15 competing cars. If there are still more than three groups, groups are combined based upon their
+        duraion. Short sessions are combined when the start of the first and the finish of the second are within
+        the duration of the qualifying session.
+
+        Columns: ['Time', 'DriverNumber', 'LapTime', 'LapNumber', 'Stint', 'PitOutTime', 'PitInTime', 'Sector1Time',
+                  'Sector2Time', 'Sector3Time', 'Sector1SessionTime', 'Sector2SessionTime', 'Sector3SessionTime',
+                  'SpeedI1', 'SpeedI2', 'SpeedFL', 'SpeedST', 'Compound', 'TyreLife', 'FreshTyre', 'LapStartTime',
+                  'Team', 'Driver', 'TrackStatus', 'IsAccurate', 'SecFromStart', 'Q']
+        Args:
+            grandprix: Event for which to obtain the qualifying laps, if None, default event is used
+
+        Returns:
+            Dataframe with best laps per qualifying session
+        """
         laps = self.get_session(grandprix, session='Q')
         times = laps['SecFromStart'] = laps['Time'].apply(lambda x: (math.floor(x.seconds / 60)))
 
@@ -283,6 +333,18 @@ class F1Helper:
         return laps
 
     def get_qualify_123_results(self, grandprix: str = None) -> pd.DataFrame:
+        """
+        Returns the results of the qualifying session. For each session a driver competed, his best time is
+        listed, together with the compound used to set this time. The top 10 drivers have a time set for all
+        three sessions, the bottom 5 for only the first session.
+        Args:
+            grandprix: Event for which the results are requested, if None, default event is used
+
+        Colomns: ['DriverNumber', 'Driver', 'Team', 'Q3', 'Q3_C', 'Q2', 'Q2_C', 'Q1', 'Q1_C']
+
+        Returns:
+            Dataframe with qualifying results
+        """
         laps = self.get_qualify_laps(grandprix)
         list_fastest_laps = list()
         for q in ['Q1', 'Q2', 'Q3']:
@@ -332,6 +394,17 @@ class F1Helper:
 
     @staticmethod
     def compound_to_str(compound: str, single: bool = True, brackets: bool = True) -> str:
+        """
+        Convert compound to requested from. Either full name or only one character. Bracket are optional
+        in both cases.
+        Args:
+            compound: String with full compund nam (e.g. 'SOFT')
+            single: Return single character compund or full name
+            brackets: Return compund name surrounded with brackets, or without
+
+        Returns:
+            Compound name
+        """
         if isinstance(compound, str):
             if single:
                 res = compound[:1] if len(compound) > 2 else ''
@@ -344,6 +417,14 @@ class F1Helper:
             return ''
 
     def print_qualify_123_results(self, grandprix: str = None) -> None:
+        """
+        Print the results of the qualification for a specific event
+        Args:
+            grandprix: Event to print
+
+        Returns:
+            None
+        """
         result = self.get_qualify_123_results(grandprix)
 
         print('{:3}  {:>2}  {:<20}  {:<13}  {:<8} {:<3}  {:<8} {:<3}  {:<8} {:<3}'.
@@ -503,3 +584,91 @@ class F1Helper:
         flaps = flaps.sort_values('LapTime')
         flaps = flaps.merge(laps[['DriverNumber', 'Driver', 'Team']].drop_duplicates(), how='left')
         return flaps
+
+    def add_text(self, canvas, x, y, text, color, font, align='left') -> None:
+        if align == 'right':
+            w, h = canvas.textsize(text, font=font)
+            x = x - w
+        canvas.text((x, y), text, color, font=font)
+
+    def add_time_diff(self, canvas, x, y, text, font, align='left') -> None:
+        color = ImageColor.getrgb("green") if text.strip()[:1] == '-' else ImageColor.getrgb("yellow")
+        self.add_text(canvas, x, y, text, color, font, align)
+
+    def compare_laps_graphic(self, lap1: Lap, lap2: Lap, show: bool = True) -> Image:
+        """
+        Show a PNG with a comparion of two laptimes, including sector compare
+        Args:
+            lap1: First lap, shown left
+            lap2: Second lap, shown right
+            show: If True, ask OS to show the generated image
+        Returns:
+            Image object with the created image
+        """
+        width = 700
+        height = 200
+        hmargin = 10
+        vstart = 20
+        vspacing = 30
+
+        font1 = ImageFont.truetype("fonts\\Formula1-Regular.otf", 20)
+        font2 = ImageFont.truetype("fonts\\Formula1-Bold.otf", 22)
+        font3 = ImageFont.truetype("fonts\\Formula1-Wide.otf", 16)
+
+        white = ImageColor.getrgb("white")
+        grey = ImageColor.getrgb("grey")
+
+        img = Image.new(mode="RGB", size=(width, height))
+        draw = ImageDraw.Draw(img)
+
+        d1 = self.get_driver(lap1['Driver'])
+        d2 = self.get_driver(lap2['Driver'])
+
+        # Lap left
+        line = d1['familyName'].values[0].upper()
+        self.add_text(draw, hmargin, vstart + 0 * vspacing, line, white, font2, align='left')
+        line = '{:2d} - {}'.format(d1['number'].values[0], d1['code'].values[0])
+        self.add_text(draw, hmargin, vstart + 1 * vspacing, line, white, font1, align='left')
+        line = self.shorten_team_name(lap1['Team'].upper())
+        self.add_text(draw, hmargin, vstart + 2 * vspacing, line, white, font1, align='left')
+        line = '{} ({:2.0f})'.format(lap1['Compound'], (lap1['TyreLife']))
+        self.add_text(draw, hmargin, vstart + 3 * vspacing, line, white, font1, align='left')
+        line = self.timedelta_to_str(lap1['LapTime'])
+        self.add_text(draw, hmargin, vstart + 5 * vspacing, line, white, font3, align='left')
+
+        # Seperators
+        draw.line([200, 0, 200, height], fill=grey, width=2)
+        draw.line([width - 200, 0, width - 200, height], fill=grey, width=2)
+
+        # Lap Right
+        line = d2['familyName'].values[0].upper()
+        self.add_text(draw, width - hmargin, vstart + 0 * vspacing, line, white, font2, align='right')
+        line = '{:2d} - {}'.format(d2['number'].values[0], d2['code'].values[0])
+        self.add_text(draw, width - hmargin, vstart + 1 * vspacing, line, white, font1, align='right')
+        line = self.shorten_team_name(lap2['Team'].upper())
+        self.add_text(draw, width - hmargin, vstart + 2 * vspacing, line, white, font1, align='right')
+        line = '{} ({:2.0f})'.format(lap2['Compound'], (lap2['TyreLife']))
+        self.add_text(draw, width - hmargin, vstart + 3 * vspacing, line, white, font1, align='right')
+        line = self.timedelta_to_str(lap2['LapTime'])
+        self.add_text(draw, width - hmargin, vstart + 5 * vspacing, line, white, font3, align='right')
+
+        # Comparison static
+        self.add_text(draw, 220, vstart + 1 * vspacing, 'sector 1', white, font1, align='left')
+        self.add_text(draw, 220, vstart + 2 * vspacing, 'sector 2', white, font1, align='left')
+        self.add_text(draw, 220, vstart + 3 * vspacing, 'sector 3', white, font1, align='left')
+        self.add_text(draw, 220, vstart + 5 * vspacing, 'lap', white, font2, align='left')
+        # Comparison dynamic
+        diff = '{:>10}'.format(self.get_diff_str(lap1['Sector1Time'], lap2['Sector1Time']))
+        self.add_time_diff(draw, width - 220, vstart + 1 * vspacing, diff, font2, align='right')
+        diff = '{:>10}'.format(self.get_diff_str(lap1['Sector2Time'], lap2['Sector2Time']))
+        self.add_time_diff(draw, width - 220, vstart + 2 * vspacing, diff, font2, align='right')
+        diff = '{:>10}'.format(self.get_diff_str(lap1['Sector3Time'], lap2['Sector3Time']))
+        self.add_time_diff(draw, width - 220, vstart + 3 * vspacing, diff, font2, align='right')
+        diff = '{:>10}'.format(self.get_diff_str(lap1['LapTime'], lap2['LapTime']))
+        self.add_time_diff(draw, width - 220, vstart + 5 * vspacing, diff, font2, align='right')
+
+        # %matplotlib inline
+        if show:
+            imshow(np.asarray(img))
+            img.show()
+        return img
