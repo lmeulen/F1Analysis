@@ -444,6 +444,22 @@ class F1Helper:
                          ))
 
     def get_qualify_results(self, grandprix: str = None) -> pd.DataFrame:
+        """
+        Returns the results of the qualifying session. This implementation assumes one session qualidication
+        so fastest time for each driver is taken.
+        Dataset is extended with gap and interval data
+        Args:
+            grandprix: Event for which the results are requested, if None, default event is used
+
+        Colomns: ['Time', 'DriverNumber', 'LapTime', 'LapNumber', 'Stint', 'PitOutTime', 'PitInTime', 'Sector1Time',
+        'Sector2Time', 'Sector3Time', Sector1SessionTime', 'Sector2SessionTime', 'Sector3SessionTime', 'SpeedI1',
+        'SpeedI2', 'SpeedFL', 'SpeedST', 'Compound', 'TyreLife', 'FreshTyre', 'LapStartTime', 'Team', 'Driver',
+        'TrackStatus', 'IsAccurate', 'Gap', 'Interval']
+
+        Returns:
+            Dataframe with qualifying results
+        """
+
         laps = self.get_session(grandprix, session='Q')
         list_fastest_laps = list()
         drivers = pd.unique(laps['Driver'])
@@ -452,14 +468,29 @@ class F1Helper:
             list_fastest_laps.append(drvs_fastest_lap)
         fastest_laps = Laps(list_fastest_laps).sort_values(by='LapTime').reset_index(drop=True)
         pole_lap = fastest_laps.pick_fastest()
-        fastest_laps['Delta'] = fastest_laps['LapTime'] - pole_lap['LapTime']
+        fastest_laps['Interval'] = fastest_laps['LapTime'] - pole_lap['LapTime']
         fastest_laps['Gap'] = fastest_laps['LapTime'] - fastest_laps['LapTime'].shift(+1)
         return fastest_laps
 
     def print_qualify_results(self, grandprix: str = None) -> None:
+        """
+        Print qualification results for a session of the given grandprix (or default in case None is passed)
+        Assumes qualification of one run.
+        Format:
+        Pos  Nr  Driver                Team           Tyre Time       Interval   Gap
+          1  33  Max VERSTAPPEN        Red Bull       S    1:03.720
+          2   4  Lando NORRIS          McLaren        S    1:03.768   0:00.048   0:00.048
+          3  11  Sergio PÉREZ          Red Bull       S    1:03.990   0:00.270   0:00.222
+
+        Args:
+            grandprix: Event for which the qualification results must be printed
+
+        Returns:
+            None
+        """
         result = self.get_qualify_results(grandprix)
         print('{:3}  {:2}  {:<20}  {:<13}  {:<4} {:<9}  {:<9}  {:<9}'.
-              format('Pos', 'Nr', 'Driver', 'Team', 'Tyre', 'Time', 'Delta', 'Gap'))
+              format('Pos', 'Nr', 'Driver', 'Team', 'Tyre', 'Time', 'Interval', 'Gap'))
         for idx, row in result.iterrows():
             print('{:3d}  {:>2}  {:<20}  {:<13}  {:<4} {:<9}  {:<9}  {:<9}'.
                   format(idx + 1,
@@ -468,12 +499,20 @@ class F1Helper:
                          self.shorten_team_name(row['Team']),
                          row['Compound'][:1],
                          self.timedelta_to_str(row['LapTime']),
-                         self.timedelta_to_str(row['Delta']),
+                         self.timedelta_to_str(row['Interval']),
                          self.timedelta_to_str(row['Gap'])
                          ))
 
     @staticmethod
     def timedelta_to_str(td: timedelta) -> str:
+        """
+        Conver a timedelta to a string in the form MM:ss:mmm
+        Args:
+            td: timedelta to convert
+
+        Returns:
+            string wiith timedelta representation
+        """
         if pd.isnull(td):
             return ''
         if isinstance(td, str):
@@ -488,6 +527,16 @@ class F1Helper:
 
     @staticmethod
     def get_diff_str(time1: timedelta, time2: timedelta) -> str:
+        """
+        Calculate the difference between the times and return it as a string in the form '- 0.313'.
+        The sign will be negative if the second time is smaller than the first.
+        Args:
+            time1: First time
+            time2: Second time
+
+        Returns:
+            String with the time difference
+        """
         if time1 >= time2:
             delta = (time1 - time2).total_seconds()
             sign = '-'
@@ -496,7 +545,16 @@ class F1Helper:
             sign = '+'
         return '{}{:2d}.{:03d}'.format(sign, int(math.floor(delta)), int(1000 * (delta % 1)))
 
-    def compare_laps(self, lap1: Lap, lap2: Lap) -> None:
+    def compare_laps(self, lap1: Lap, lap2: Lap) -> str:
+        """
+        Compare two laps and print an overview of the comaprison, including sector time comparison
+        Args:
+            lap1: First lap
+            lap2: Second lap
+
+        Returns:
+            The string with the comparison
+        """
         d1 = self.get_driver(lap1['Driver'])
         d2 = self.get_driver(lap2['Driver'])
 
@@ -527,11 +585,9 @@ class F1Helper:
         diff = '{:<8}{:>10}'.format('lap', self.get_diff_str(lap1['LapTime'], lap2['LapTime']))
         l5 = format_string.format(left, diff, rght)
 
-        print(l1)
-        print(l2)
-        print(l3)
-        print(l4)
-        print(l5)
+        result = l1 + '\n' + l2 + '\n' + l3 + '\n' + l4 + '\n' + l5 + '\n'
+        print(result)
+        return result
 
     def print_laptime_table(self, laptimetable: pd.DataFrame) -> None:
         """
@@ -585,13 +641,44 @@ class F1Helper:
         flaps = flaps.merge(laps[['DriverNumber', 'Driver', 'Team']].drop_duplicates(), how='left')
         return flaps
 
-    def add_text(self, canvas, x, y, text, color, font, align='left') -> None:
+    def add_text(self, canvas: ImageDraw, x: int, y: int, text: str, color: ImageColor,
+                 font: ImageFont, align: str = 'left') -> None:
+        """
+        Add the specified text to the image. The text is added add lcation (x,y). The text is located right from
+        this point in case of right alignement and left in case of left alignment. The font and color to use to
+        draw the text are passed as parameter.
+        Args:
+            canvas:
+            x: x location to add text
+            y: y locatio to add text
+            text: The text to add to the image
+            color: The color to paint the text with
+            font: THe font to use to print the text
+            align: Alignment, 'left' or 'right'
+
+        Returns:
+            None
+        """
         if align == 'right':
             w, h = canvas.textsize(text, font=font)
             x = x - w
         canvas.text((x, y), text, color, font=font)
 
-    def add_time_diff(self, canvas, x, y, text, font, align='left') -> None:
+    def add_time_diff(self, canvas: ImageDraw, x: int, y: int, text: str, font: ImageFont, align: str = 'left') -> None:
+        """
+        Add the time difference string to the draing canvas. Yellow when it is a negative difference, green otherwise.
+        See als draw_text, as this method only change color depending the color to display the time difference.
+        Args:
+            canvas: ImageDraw to add text to
+            x: x-location
+            y: y-location
+            text: Text to add
+            font: Font to use
+            align: 'left' or 'right'
+
+        Returns:
+            None
+        """
         color = ImageColor.getrgb("green") if text.strip()[:1] == '-' else ImageColor.getrgb("yellow")
         self.add_text(canvas, x, y, text, color, font, align)
 
