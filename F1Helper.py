@@ -16,15 +16,19 @@ from datetime import timedelta
 
 class F1Helper:
 
-    def __init__(self):
+    def __init__(self, season: int = None, grandprix: str = None):
         self.season = 0
+        self.event = None
         self.events = pd.DataFrame()
         self.drivers = pd.DataFrame()
         self.sessions = {}
-        self.event = None
         if not os.path.exists('cache'):
             os.makedirs('cache')
         ff1.Cache.enable_cache('cache')
+        if season:
+            self.set_season(season)
+        if grandprix:
+            self.set_default_event(grandprix)
 
     def set_season(self, year: int) -> None:
         """

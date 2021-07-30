@@ -31,4 +31,8 @@ f1h.print_laptime_table(flaps)
 
 print()
 print('Graphical lap comparisom')
+f1h = F1Helper(2021, 'Aus')
+laps = f1h.get_session(session='Q')
+alo_lap = laps.pick_driver("ALO").pick_fastest()
+vet_lap = laps.pick_driver("VET").pick_fastest()
 f1h.compare_laps_graphic(alo_lap, vet_lap)
